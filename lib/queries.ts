@@ -38,6 +38,26 @@ async function live() {
   await io();
 }
 
+/**
+ * آگهی‌هایی که در بازار دیده می‌شوند — **یک منبع حقیقت** برای هم شبکه‌ی کارت‌ها
+ * و هم شمارنده‌ی چیپ‌های روز.
+ *
+ * نکته‌ی اصلی این فیلتر: `deliveryDate` یک *روز* است، نه یک لحظه. فرم همان روز
+ * را به‌شکل نیمه‌شبِ UTC ذخیره می‌کند (`new Date("۲۰۲۶-۱۰-۲۵")`) و بذر به‌شکل
+ * نیمه‌شبِ تهران. اگر با `new Date()` سنجیده شود، هر آگهیِ «همان‌روز» از صبحِ همان
+ * روز — یعنی پرتقاضاترین ژتون‌ها — از بازار حذف می‌شود، چون نیمه‌شبِ آن روز
+ * قبلاً گذشته است. مرز درست همان چیزی است که بقیه‌ی سیستم هم استفاده می‌کند:
+ * نیمه‌شبِ تهران، یعنی «روزِ تحویل هنوز کاملاً نیامده».
+ */
+function marketableListings(now: Date) {
+  return {
+    status: { in: ["OPEN", "RESERVED"] },
+    expiresAt: { gt: now },
+    deliveryDate: { gte: tehranMidnight(now) },
+    seller: { isBlocked: false },
+  } satisfies Prisma.ListingWhereInput;
+}
+
 /* ------------------------------------------------------------------ *
  *  روزهای غذا
  * ------------------------------------------------------------------ */
@@ -98,6 +118,8 @@ export async function getUpcomingDays(
 ): Promise<DayView[]> {
   await live();
 
+  const now = new Date();
+
   const days = await db.mealDay.findMany({
     where: {
       // مرز «گذشته» نیمه‌شب تهران است، نه لحظه‌ی اکنون: روز غذا هم دقیقاً
@@ -110,7 +132,9 @@ export async function getUpcomingDays(
     take: limit,
     include: {
       listings: {
-        where: { status: { in: ["OPEN", "RESERVED"] } },
+        // همان فیلترِ شبکه‌ی بازار، تا عددِ روی چیپ همان چیزی باشد که شبکه نشان
+        // می‌دهد — وگرنه چیپ «۱ ژتون» می‌گفت ولی شبکه خالی بود.
+        where: marketableListings(now),
         select: { quantity: true },
       },
       _count: { select: { listings: true } },
@@ -248,12 +272,11 @@ export async function getMarketListings(
         ? [{ unitPrice: "desc" }, { createdAt: "desc" }]
         : [{ createdAt: "desc" }];
 
+  const now = new Date();
+
   const rows = await db.listing.findMany({
     where: {
-      status: { in: ["OPEN", "RESERVED"] },
-      expiresAt: { gt: new Date() },
-      deliveryDate: { gt: new Date() },
-      seller: { isBlocked: false },
+      ...marketableListings(now),
       mealDay: {
         date: { gte: tehranMidnight() },
         status: { in: ["OPEN", "LOCKED"] },
