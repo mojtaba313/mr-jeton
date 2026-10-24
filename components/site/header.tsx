@@ -197,7 +197,9 @@ export function HeaderNav({
               exit={{ y: -16, opacity: 0 }}
               transition={{ type: "spring", stiffness: 320, damping: 32 }}
               onClick={(event) => event.stopPropagation()}
-              className="glass-strong m-3 space-y-1 rounded-3xl p-4 shadow-lift"
+              // بالای کشو باید از زیر هدرِ چسبان (h-18 = ۷۲px، با z-50) بیرون بیاید؛
+              // وگرنه هدر روی اولین آیتم‌های منو می‌افتد و آن‌ها را می‌پوشاند.
+              className="glass-strong mx-3 mb-3 mt-20 space-y-1 rounded-3xl p-4 shadow-lift"
             >
               {NAV_LINKS.map((link) => (
                 <NavLink

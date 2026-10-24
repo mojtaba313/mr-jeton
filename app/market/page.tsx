@@ -8,6 +8,7 @@ import { LinkButton } from "@/components/ui/button";
 import { EmptyState, SkeletonCard } from "@/components/ui/motion-primitives";
 
 import { currentUser } from "@/lib/auth";
+import { FEE_PERCENT } from "@/lib/config";
 import { formatJalaliShort } from "@/lib/dates";
 import { parseToman } from "@/lib/money";
 import { getMarketListings, getUpcomingDays } from "@/lib/queries";
@@ -87,7 +88,7 @@ async function MarketBrowser({
           {listings.map((listing, index) => (
             <ListingCard
               key={listing.id}
-              listing={{ ...listing, feePercent: 5 }}
+              listing={{ ...listing, feePercent: FEE_PERCENT }}
               index={index}
               isOwner={listing.sellerId === userId}
               isSignedIn={Boolean(user)}

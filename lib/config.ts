@@ -23,11 +23,30 @@ function positiveFloat(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/** سهم پلتفرم از هر رزروی موفق. تنها خط درآمد سایت. */
+/**
+ * مثل `positiveInt`، ولی صفر را هم قبول می‌کند. برای جاهایی که «صفر» یک انتخاب
+ * واقعی است نه داده‌ی خالی — مثلاً `PLATFORM_FEE_PERCENT=0` یعنی سهم سایت صفر، که
+ * نباید به مقدار پیش‌فرض برگردد (وگرنه هیچ‌وقت نمی‌شود سایت را بدون کارمزد اجرا کرد).
+ */
+function nonNegativeInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/** سهم پلتفرم از هر رزروی موفق. تنها خط درآمد سایت — و صفر یعنی «فعلاً سهمی در کار نیست». */
 export const FEE_PERCENT = Math.min(
   50,
-  positiveInt(process.env.PLATFORM_FEE_PERCENT, 5),
+  nonNegativeInt(process.env.PLATFORM_FEE_PERCENT, 5),
 );
+
+/**
+ * آیا پول از کیف پول سایت عبور می‌کند (سکرو)؟
+ *
+ * فقط وقتی سهم سایت بزرگ‌تر از صفر است. اگر سهم صفر باشد، پول را خریدار و
+ * فروشنده سرِ نقطه‌ی تحویل رد و بدل می‌کنند و سایت صرفاً هماهنگ‌کننده است — پس
+ * نه کیف پولی قفل می‌شود و نه رزرو به شارژ کیف پول نیاز دارد.
+ */
+export const ESCROW_ENABLED = FEE_PERCENT > 0;
 
 /** حداقل شارژ کیف پول — کمتر از این، رزرو تقریباً همیشه ناموفق می‌شود. */
 export const MIN_TOPUP = 50_000;

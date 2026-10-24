@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireUser } from "@/lib/auth";
-import { FEE_PERCENT, LISTING_TTL_HOURS } from "@/lib/config";
+import { ESCROW_ENABLED, FEE_PERCENT, LISTING_TTL_HOURS } from "@/lib/config";
 import { db, ListingStatus, MealDayStatus, ReservationStatus, WalletEntryKind } from "@/lib/db";
 import { tehranMidnight } from "@/lib/dates";
 import { HELD_RESERVATION_STATUSES } from "@/lib/labels";
@@ -209,14 +209,18 @@ export async function reserveAction(
             select: { id: true, code: true, sellerId: true, quantity: true },
           });
 
-          // پول خریدار همین‌جا قفل می‌شود: اگر موجودی کم باشد، تراکنش برمی‌گردد.
-          await debit(tx, {
-            userId: user.id,
-            kind: WalletEntryKind.HOLD,
-            amount: gross,
-            reservationId: reservation.id,
-            note: `رزرو ${parsed.data.quantity} ژتون — کد ${code}`,
-          });
+          // اگر سهم سایت صفر باشد، پولی قفل نمی‌شود: خریدار و فروشنده سرِ نقطه‌ی
+          // تحویل تسویه می‌کنند و رزرو به شارژ کیف پول نیاز ندارد.
+          if (ESCROW_ENABLED) {
+            // پول خریدار همین‌جا قفل می‌شود: اگر موجودی کم باشد، تراکنش برمی‌گردد.
+            await debit(tx, {
+              userId: user.id,
+              kind: WalletEntryKind.HOLD,
+              amount: gross,
+              reservationId: reservation.id,
+              note: `رزرو ${parsed.data.quantity} ژتون — کد ${code}`,
+            });
+          }
 
           if (remaining - parsed.data.quantity <= 0) {
             await tx.listing.update({
@@ -351,26 +355,29 @@ export async function confirmHandoverAction(
       },
     });
 
-    // سهم فروشنده از پول قفل‌شده‌ی خریدار جدا می‌شود و به کیف پول او می‌رود؛
-    // سهم سایت همان‌جا می‌ماند و وارد دفتر هیچ کاربری نمی‌شود.
-    await tx.walletEntry.create({
-      data: {
-        userId: reservation.sellerId,
-        kind: WalletEntryKind.RELEASE,
-        amount: reservation.sellerAmount,
-        reservationId: reservation.id,
-        note: `فروش رزرو ${reservation.code}`,
-      },
-    });
+    // فقط وقتی پولی قفل شده باشد آزاد می‌شود؛ وگرنه سهم فروشنده از هیچ ساخته می‌شد.
+    if (ESCROW_ENABLED) {
+      // سهم فروشنده از پول قفل‌شده‌ی خریدار جدا می‌شود و به کیف پول او می‌رود؛
+      // سهم سایت همان‌جا می‌ماند و وارد دفتر هیچ کاربری نمی‌شود.
+      await tx.walletEntry.create({
+        data: {
+          userId: reservation.sellerId,
+          kind: WalletEntryKind.RELEASE,
+          amount: reservation.sellerAmount,
+          reservationId: reservation.id,
+          note: `فروش رزرو ${reservation.code}`,
+        },
+      });
 
-    await tx.ledgerEntry.create({
-      data: {
-        kind: "FEE",
-        amount: reservation.feeAmount,
-        reservationId: reservation.id,
-        note: `سهم سایت از رزرو ${reservation.code}`,
-      },
-    });
+      await tx.ledgerEntry.create({
+        data: {
+          kind: "FEE",
+          amount: reservation.feeAmount,
+          reservationId: reservation.id,
+          note: `سهم سایت از رزرو ${reservation.code}`,
+        },
+      });
+    }
   });
 
   await notify(reservation.sellerId, {
@@ -420,15 +427,18 @@ export async function cancelReservationAction(
       data: { status: ReservationStatus.CANCELLED, cancelledAt: new Date() },
     });
 
-    await tx.walletEntry.create({
-      data: {
-        userId: reservation.buyerId,
-        kind: WalletEntryKind.REFUND,
-        amount: reservation.grossAmount,
-        reservationId: reservation.id,
-        note: `بازگشت رزرو ${reservation.code}`,
-      },
-    });
+    // فقط وقتی پولی قفل شده باشد برمی‌گردد؛ وگرنه خریدار پولی از هیچ می‌گرفت.
+    if (ESCROW_ENABLED) {
+      await tx.walletEntry.create({
+        data: {
+          userId: reservation.buyerId,
+          kind: WalletEntryKind.REFUND,
+          amount: reservation.grossAmount,
+          reservationId: reservation.id,
+          note: `بازگشت رزرو ${reservation.code}`,
+        },
+      });
+    }
 
     // اگر این تنها رزرو بود، آگهی دوباره باز می‌شود.
     const active = await tx.reservation.count({

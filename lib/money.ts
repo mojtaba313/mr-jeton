@@ -65,6 +65,10 @@ export type AmountSplit = {
 export function splitAmount(gross: number, feePercent: number): AmountSplit {
   if (gross <= 0) return { gross: 0, fee: 0, seller: 0 };
 
+  // سهم صفر یعنی سایت واقعاً هیچ‌چیز برنمی‌دارد؛ نباید کفِ ۱٬۰۰۰ تومانی اعمال شود
+  // (وگرنه «۰٪» عملاً ۱٬۰۰۰ تومان کارمزد می‌شد و پول از کیف پول قفل می‌شد).
+  if (feePercent <= 0) return { gross, fee: 0, seller: gross };
+
   const rawFee = (gross * feePercent) / 100;
   const fee = Math.max(1000, Math.round(rawFee / 1000) * 1000);
 

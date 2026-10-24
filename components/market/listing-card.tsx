@@ -77,7 +77,10 @@ export function ListingCard({
 
   const gross = listing.unitPrice * quantity;
   const { seller } = splitAmount(gross, listing.feePercent);
-  const affordable = balance === null || balance >= gross;
+  // سهم صفر یعنی سکرو خاموش است: پول سرِ نقطه‌ی تحویل بین دو طرف رد و بدل می‌شود،
+  // پس رزرو به شارژ کیف پول نیاز ندارد و موجودی هم شرط نیست.
+  const escrow = listing.feePercent > 0;
+  const affordable = !escrow || balance === null || balance >= gross;
 
   function reserve() {
     startTransition(async () => {
@@ -277,14 +280,27 @@ export function ListingCard({
             <Row label={`قیمت هر ژتون × ${toPersianDigits(quantity)}`}>
               {formatToman(gross)}
             </Row>
-            <div className="rule-glow my-1" />
-            <div className="flex items-center justify-between gap-3">
-              <span className="font-semibold text-ink">از کیف پولت کم می‌شود</span>
-              <span className="text-base font-black text-brand-200">{formatToman(gross)}</span>
-            </div>
-            <Row label={`سهم فروشنده (${toPersianDigits(listing.feePercent)}٪ کم می‌شود)`}>
-              {formatToman(seller)}
-            </Row>
+            {escrow ? (
+              <>
+                <div className="rule-glow my-1" />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-ink">از کیف پولت کم می‌شود</span>
+                  <span className="text-base font-black text-brand-200">{formatToman(gross)}</span>
+                </div>
+                <Row label={`سهم فروشنده (${toPersianDigits(listing.feePercent)}٪ کم می‌شود)`}>
+                  {formatToman(seller)}
+                </Row>
+              </>
+            ) : (
+              <>
+                <div className="rule-glow my-1" />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-ink">پرداخت سرِ نقطه‌ی تحویل</span>
+                  <span className="text-base font-black text-brand-200">{formatToman(gross)}</span>
+                </div>
+                <Row label="سهم سایت">رایگان</Row>
+              </>
+            )}
           </div>
 
           {!affordable && balance !== null ? (
@@ -296,9 +312,17 @@ export function ListingCard({
 
           <Field
             readOnly
-            value="پول در کیف پول سایت تا تایید تحویل نگه داشته می‌شود"
+            value={
+              escrow
+                ? "پول در کیف پول سایت تا تایید تحویل نگه داشته می‌شود"
+                : "پول را موقع تحویل مستقیماً به فروشنده می‌دهی"
+            }
             label="بعد از رزرو چه می‌شود؟"
-            hint="اطلاعات تماس فروشنده همین‌جا باز می‌شود تا سر وقت هماهنگ کنید. اگر تا روز تحویل منصرف شوی، پول به کیف پولت برمی‌گردد."
+            hint={
+              escrow
+                ? "اطلاعات تماس فروشنده همین‌جا باز می‌شود تا سر وقت هماهنگ کنید. اگر تا روز تحویل منصرف شوی، پول به کیف پولت برمی‌گردد."
+                : "اطلاعات تماس فروشنده همین‌جا باز می‌شود تا سر وقت هماهنگ کنید. پول را همان‌جا و مستقیم به او می‌دهی؛ سایت نقشی در پول ندارد."
+            }
           />
 
           {!isSignedIn ? (
