@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { BellRing, CalendarPlus, Loader2, Pencil, Plus } from "lucide-react";
+import { BellRing, CalendarDays, CalendarPlus, Loader2, Pencil, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, IconButton } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Select, Textarea } from "@/components/ui/form";
+import { EmptyState } from "@/components/ui/motion-primitives";
 import { toJalali, toPersianDigits } from "@/lib/dates";
 import { formatNumber } from "@/lib/money";
 import { DAY_STATUS } from "@/lib/labels";
@@ -62,14 +63,22 @@ export function MealDayManager({ days }: { days: DayRow[] }) {
       </div>
 
       <div className="space-y-3">
-        {days.map((day, index) => (
-          <DayRowCard
-            key={day.id}
-            day={day}
-            index={index}
-            onEdit={() => setEditing(day)}
+        {days.length === 0 ? (
+          <EmptyState
+            icon={<CalendarDays className="size-6" />}
+            title="هنوز روز غذایی ثبت نشده"
+            description="اولین روز را اضافه کن تا بازار برای آن روز باز شود."
           />
-        ))}
+        ) : (
+          days.map((day, index) => (
+            <DayRowCard
+              key={day.id}
+              day={day}
+              index={index}
+              onEdit={() => setEditing(day)}
+            />
+          ))
+        )}
       </div>
 
       <MealDayDialog

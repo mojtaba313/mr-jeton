@@ -1,8 +1,7 @@
-import { CalendarDays } from "lucide-react";
 import { Suspense } from "react";
 
 import { MealDayManager, type DayRow } from "@/components/admin/meal-day-manager";
-import { EmptyState, Skeleton } from "@/components/ui/motion-primitives";
+import { Skeleton } from "@/components/ui/motion-primitives";
 
 import { requireAdmin } from "@/lib/auth";
 import { toDateInput } from "@/lib/dates";
@@ -37,16 +36,8 @@ async function DaysBlock() {
   await requireAdmin();
   const days = await getAllDays();
 
-  if (days.length === 0) {
-    return (
-      <EmptyState
-        icon={<CalendarDays className="size-6" />}
-        title="هنوز روز غذایی ثبت نشده"
-        description="اولین روز را اضافه کن تا بازار برای آن روز باز شود."
-      />
-    );
-  }
-
+  // روزی که ثبت نشده هم باید از همین صفحه اضافه شود؛ پس فهرست خالی را خودِ
+  // مدیر نشان می‌دهد، نه یک حالت خالیِ بدون دکمه.
   const rows: DayRow[] = days.map((day) => ({
     id: day.id,
     title: day.title,
@@ -65,8 +56,6 @@ async function DaysBlock() {
 
   return <MealDayManager days={rows} />;
 }
-
-/** تاریخ به وقت تهران، به شکل `YYYY-MM-DD` برای اینپوت میلادی. */
 
 function DaysSkeleton() {
   return (
