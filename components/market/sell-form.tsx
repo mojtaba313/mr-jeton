@@ -1,6 +1,6 @@
 "use client";
 
-import { Crosshair, Info, Sparkles } from "lucide-react";
+import { ChevronDown, Crosshair, Info, Sparkles } from "lucide-react";
 import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -23,13 +23,18 @@ import { formatCoords } from "@/lib/maps";
  */
 export function SellForm({
   days,
-  officialPrice,
   defaultDateISO,
   minDateISO,
   maxDateISO,
 }: {
-  days: { id: number; label: string; hint: string; dateISO: string }[];
-  officialPrice: number;
+  days: {
+    id: number;
+    label: string;
+    hint: string;
+    dateISO: string;
+    /** قیمت رسمیِ همان روز — با تغییر انتخاب، پیشنهاد قیمت هم عوض می‌شود. */
+    officialPrice: number;
+  }[];
   /** روز پیشنهادی و بازه‌ی مجاز تحویل — سمت سرور حساب می‌شوند، به‌وقت تهران. */
   defaultDateISO: string;
   minDateISO: string;
@@ -42,51 +47,73 @@ export function SellForm({
 
   const [quantity, setQuantity] = useState("1");
   const [point, setPoint] = useState({ lat: MAP.lat, lng: MAP.lng });
-  const [price, setPrice] = useState(() =>
-    officialPrice > 0 ? toPersianDigits(roundToThousand(officialPrice * 0.95)) : "",
-  );
   const [dayId, setDayId] = useState(days[0] ? String(days[0].id) : "");
   const [touched, setTouched] = useState(false); // قیمت دستی، قیمت پیشنهادی را قطع می‌کند
+
+  // قیمت سلف و پیشنهاد قیمت از روزِ انتخاب‌شده می‌آیند، نه از اولِ فهرست —
+  // وگرنه با عوض کردن روز، راهنمای قیمت روز قبلی می‌ماند.
+  const selectedDay = days.find((day) => String(day.id) === dayId) ?? days[0];
+  const officialPrice = selectedDay?.officialPrice ?? 0;
+  const suggestedPrice =
+    officialPrice > 0 ? toPersianDigits(roundToThousand(officialPrice * 0.95)) : "";
+  const [price, setPrice] = useState(suggestedPrice);
 
   useEffect(() => {
     if (state?.ok) toast.success("آگهی ثبت شد", { description: state.message });
     else if (state && !state.ok) toast.error("ثبت نشد", { description: state.message });
   }, [state]);
 
-  // تا وقتی کاربر قیمتی تایپ نکرده، قیمت پیشنهادی با روز انتخاب‌شده به‌روز
-  // می‌شود — در حالت رندر، نه در افکت.
-  const suggested = officialPrice > 0 ? toPersianDigits(roundToThousand(officialPrice * 0.95)) : "";
-  const priceValue = touched ? price : suggested;
-
-  const parsedPrice = parseToman(priceValue) ?? 0;
+  const parsedPrice = parseToman(price) ?? 0;
   const diffPercent =
     officialPrice > 0 ? Math.round(((officialPrice - parsedPrice) / officialPrice) * 100) : 0;
 
   return (
     <form action={action} className="space-y-5">
-      <label className="block space-y-2">
-        <span className="block text-[13px] font-medium text-ink-soft">
-          برای کدام روز غذا ژتون رزرو کرده‌ای؟
-        </span>
-        <select
-          name="mealDayId"
-          value={dayId}
-          onChange={(event) => setDayId(event.target.value)}
-          required
-          className="h-12 w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-canvas-deep/70 px-4 text-sm text-ink outline-none transition-colors focus:border-brand-300/60"
+      {/* دور این فیلد عمداً label نیست: label، کلیک روی select را دو بار فعال
+          می‌کند و در بعضی مرورگرها فهرست باز و بلافاصله بسته می‌شود — همان
+          چیزی که «انتخاب کار نمی‌کند» به نظر می‌رسد. */}
+      <div className="space-y-2">
+        <label
+          htmlFor="mealDayId"
+          className="block text-[13px] font-medium text-ink-soft"
         >
-          {days.map((day) => (
-            <option key={day.id} value={day.id} className="bg-surface">
-              {day.label} — {day.hint}
-            </option>
-          ))}
-        </select>
+          برای کدام روز غذا ژتون رزرو کرده‌ای؟
+        </label>
+        <div className="relative">
+          <select
+            id="mealDayId"
+            name="mealDayId"
+            value={dayId}
+            onChange={(event) => {
+              const next = event.target.value;
+              setDayId(next);
+              // تا وقتی کاربر خودش قیمت را دست نزده، پیشنهاد با روز جدید می‌آید.
+              if (!touched) {
+                const day = days.find((item) => String(item.id) === next);
+                setPrice(
+                  day && day.officialPrice > 0
+                    ? toPersianDigits(roundToThousand(day.officialPrice * 0.95))
+                    : "",
+                );
+              }
+            }}
+            required
+            className="h-12 w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-canvas-deep/70 pe-10 ps-4 text-sm text-ink outline-none transition-colors focus:border-brand-300/60"
+          >
+            {days.map((day) => (
+              <option key={day.id} value={day.id} className="bg-surface text-ink">
+                {day.label} — {day.hint}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute end-3 top-1/2 size-4 -translate-y-1/2 text-ink-faint" />
+        </div>
         {state?.errors?.mealDayId ? (
           <span className="block text-[12px] font-medium text-rose-warm">
             {state.errors.mealDayId}
           </span>
         ) : null}
-      </label>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">

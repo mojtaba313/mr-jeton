@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/motion-primitives";
 
 import { currentUser } from "@/lib/auth";
 import { FEE_PERCENT, MAX_DELIVERY_LEAD_HOURS } from "@/lib/config";
+import { MealDayStatus } from "@/lib/db";
 import { formatJalaliShort, toDateInput } from "@/lib/dates";
 import { formatNumber } from "@/lib/money";
 import { getUpcomingDays } from "@/lib/queries";
@@ -116,7 +117,10 @@ async function SellBlock() {
 }
 
 async function SellFormBlock() {
-  const days = await getUpcomingDays(6);
+  // فقط روزهایی که می‌شود در آن‌ها آگهی گذاشت: همان شرطی که
+  // `createListingAction` اعمال می‌کند، تا گزینه‌ای که در نهایت رد می‌شود
+  // در فهرست نیاید.
+  const days = await getUpcomingDays(6, [MealDayStatus.OPEN, MealDayStatus.LOCKED]);
 
   // «الان» به وقت تهران: روزهای گذشته غیرفعال می‌شوند و تحویل از همان سقفی
   // دورتر نمی‌رود که اعتبارسنجی سرور اعمال می‌کند.
@@ -133,8 +137,8 @@ async function SellFormBlock() {
         label: day.title,
         hint: `${formatJalaliShort(day.date)} · ${formatNumber(day.officialPrice)} تومان`,
         dateISO: toDateInput(day.date),
+        officialPrice: day.officialPrice,
       }))}
-      officialPrice={days[0]?.officialPrice ?? 0}
       defaultDateISO={days[0] ? toDateInput(days[0].date) : minDateISO}
       minDateISO={minDateISO}
       maxDateISO={maxDateISO}

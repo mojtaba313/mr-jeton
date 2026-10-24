@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { FEE_PERCENT, LISTING_TTL_HOURS } from "@/lib/config";
 import { db, ListingStatus, MealDayStatus, ReservationStatus, WalletEntryKind } from "@/lib/db";
+import { tehranMidnight } from "@/lib/dates";
 import { HELD_RESERVATION_STATUSES } from "@/lib/labels";
 import { splitAmount } from "@/lib/money";
 import { notify, notifyAdmins } from "@/lib/notify";
@@ -60,7 +61,10 @@ export async function createListingAction(
   const data = parsed.data;
 
   const day = await db.mealDay.findUnique({ where: { id: data.mealDayId } });
-  if (!day || !TRADEABLE.includes(day.status) || day.date <= new Date()) {
+  // روز غذا در نیمه‌شب تهران ذخیره می‌شود (۲۰:۳۰ UTC روز قبل)، پس «گذشته»
+  // باید با همان مرز سنجیده شود — وگرنه ناهار امروز از ظهر به بعد غیرقابل‌فروش
+  // می‌شد.
+  if (!day || !TRADEABLE.includes(day.status) || day.date < tehranMidnight()) {
     return { ok: false, message: "برای این روز غذا نمی‌شود آگهی گذاشت." };
   }
 

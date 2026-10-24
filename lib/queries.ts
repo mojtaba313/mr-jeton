@@ -5,7 +5,7 @@ import { io } from "next/cache";
 import { type Prisma } from "@/app/generated/prisma/client";
 
 import { db, MealDayStatus } from "@/lib/db";
-import { formatJalaliShort, formatTimeRange } from "@/lib/dates";
+import { formatJalaliShort, formatTimeRange, tehranMidnight } from "@/lib/dates";
 import {
   DAY_STATUS,
   HELD_RESERVATION_STATUSES,
@@ -91,11 +91,21 @@ function toDayView(
   };
 }
 
-export async function getUpcomingDays(limit = 6): Promise<DayView[]> {
+export async function getUpcomingDays(
+  limit = 6,
+  /** اگر خالی باشد، همه‌ی وضعیت‌ها جز «لغو شده» برمی‌گردند. */
+  statuses: MealDayStatus[] = [],
+): Promise<DayView[]> {
   await live();
 
   const days = await db.mealDay.findMany({
-    where: { date: { gte: new Date() }, status: { not: "CANCELLED" } },
+    where: {
+      // مرز «گذشته» نیمه‌شب تهران است، نه لحظه‌ی اکنون: روز غذا هم دقیقاً
+      // همان نیمه‌شب ذخیره شده، یعنی در UTC ساعت ۲۰:۳۰ روز قبل. مقایسه با
+      // `new Date()` روزِ امروز را از اول صبح از بازار و فرم فروش حذف می‌کرد.
+      date: { gte: tehranMidnight() },
+      status: statuses.length > 0 ? { in: statuses } : { not: "CANCELLED" },
+    },
     orderBy: { date: "asc" },
     take: limit,
     include: {
@@ -245,7 +255,7 @@ export async function getMarketListings(
       deliveryDate: { gt: new Date() },
       seller: { isBlocked: false },
       mealDay: {
-        date: { gte: new Date() },
+        date: { gte: tehranMidnight() },
         status: { in: ["OPEN", "LOCKED"] },
         ...(filters.dayId ? { id: filters.dayId } : {}),
       },
@@ -272,7 +282,7 @@ export async function getMarketStats() {
     }),
     db.reservation.count({ where: { status: "COMPLETED" } }),
     db.ledgerEntry.aggregate({ where: { kind: "FEE" }, _sum: { amount: true } }),
-    db.mealDay.count({ where: { date: { gte: new Date() } } }),
+    db.mealDay.count({ where: { date: { gte: tehranMidnight() } } }),
   ]);
 
   return {
