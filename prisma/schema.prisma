@@ -1,0 +1,364 @@
+// بوم ژتون غذا — طرح پایگاه داده
+//
+// این نسخه یک بازار است که مدیر در آن نقش ندارد: خریدار و فروشنده خودشان همدیگر را
+// پیدا می‌کنند و پول از طریق **کیف پول** جابه‌جا می‌شود. مدیر فقط دو کار می‌کند:
+// شارژ کیف پول را تایید می‌کند و تسویه‌ی فروشنده‌ها را پرداخت می‌کند.
+//
+// چهار تصمیم که همه‌ی مدل از آن‌ها می‌آید:
+//
+//  ۱. **پول عدد صحیح تومان است.** بدون ممیز شمار. قیمت‌ها به هزار تومان گرد
+//     می‌شوند و سهم سایت هم به هزار — پس `fee + seller === gross` همیشه دقیقاً
+//     برابر می‌ماند.
+//
+//  ۲. **موجودی کیف پول جمع یک دفتر است، نه یک ستون.** `WalletEntry` هر حرکت پول
+//     را نگه می‌دارد و موجودی، مجموع آن‌هاست. یک ستون `balance` در جدول کاربران
+//     دیر یا زود با واقعیت اختلاف پیدا می‌کند؛ دفتر نمی‌کند، چون هیچ‌وقت "به‌روز"
+//     نمی‌شود — فقط خوانده می‌شود.
+//
+//  ۳. **پول خریدار در رزرو قفل می‌شود و در تحویل آزاد.** رزرو یک سطر `HOLD`
+//     منفی می‌سازد و تکمیل یک سطر `RELEASE` مثبت برای فروشنده. سهم سایت هیچ‌وقت
+//     وارد دفتر کاربری نمی‌شود؛ در `LedgerEntry` خودش می‌ماند.
+//
+//  ۴. **اطلاعات طرفین تا رزرو پنهان است.** شماره تماس و نام فقط در جدول رزرو
+//     قابل خواندن است، نه در آگهی — پس «دور زدن سایت» عملاً غیرممکن است چون
+//     خریدار قبل از پرداخت اصلاً راهی برای پیدا کردن فروشنده ندارد.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgres"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  MISMATCH
+  EXPIRED
+}
+
+enum MealDayStatus {
+  OPEN
+  LOCKED
+  CLOSED
+  DONE
+  CANCELLED
+}
+
+enum ListingStatus {
+  /// هنوز رزرو نشده.
+  OPEN
+  /// تمام ژتون‌هایش رزرو شده، ولی روز تحویل نرسیده.
+  RESERVED
+  /// رزروها کامل شدند و ژتون‌ها تحویل شدند.
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum ReservationStatus {
+  /// پول قفل شده؛ منتظر روز تحویل.
+  RESERVED
+  /// فروشنده ژتون را تحویل داد، منتظر تایید خریدار.
+  AWAITING_BUYER
+  COMPLETED
+  CANCELLED
+  /// یکی از طرفین اعتراض کرده؛ مدیر تعیین تکلیف می‌کند.
+  DISPUTED
+}
+
+enum WalletEntryKind {
+  /// شارژ کیف پول که مدیر تایید کرده.
+  TOPUP
+  /// قفل شدن پول خریدار هنگام رزرو (منفی).
+  HOLD
+  /// آزاد شدن سهم فروشنده پس از تحویل (مثبت).
+  RELEASE
+  /// برگشت پول خریدار وقتی رزرو لغو شد (مثبت).
+  REFUND
+  /// درخواست برداشت (منفی) — تا تایید مدیر از موجودی کم می‌شود.
+  WITHDRAWAL
+  /// رد درخواست برداشت: برگشت به کیف پول (مثبت).
+  WITHDRAWAL_REVERSED
+  /// اصلاح دستی مدیر.
+  ADJUSTMENT
+}
+
+enum WalletRequestKind {
+  /// شارژ کیف پول با کارت‌به‌کارت + رسید.
+  TOPUP
+  /// درخواست برداشت موجودی.
+  WITHDRAWAL
+}
+
+enum WalletRequestStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+/// دفتر مالی خودِ پلتفرم — تنها جایی که «سود» معنا پیدا می‌کند.
+enum LedgerKind {
+  /// سهم سایت از یک رزروی موفق.
+  FEE
+  /// پولی که به فروشنده پرداخت شد (منفی).
+  WITHDRAWAL_PAID
+  /// برگشت وجه (منفی).
+  REFUND
+  /// اصلاح دستی مدیر.
+  ADJUSTMENT
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  /// شماره دانشجویی اختیاری است؛ اگر پر شود یکتا می‌ماند.
+  studentId    String?  @unique
+  /// شماره تماس، تنها شناسه‌ی ورود و اجباری.
+  phone        String   @unique
+  /// زمان تایید شماره با ربات تلگرام. تا وقتی این null باشد، حساب نیمه‌کاره است.
+  phoneVerifiedAt DateTime?
+  passwordHash String
+  role         Role     @default(USER)
+  isBlocked    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  listings      Listing[]      @relation("SellerListings")
+  reservations  Reservation[]  @relation("BuyerReservations")
+  sales         Reservation[]  @relation("SellerReservations")
+  walletEntries WalletEntry[]
+  walletRequests WalletRequest[]
+  notifications Notification[]
+  ledgerEntries LedgerEntry[] @relation("LedgerActor")
+  reviews       WalletRequest[] @relation("RequestReviewer")
+
+  @@index([role])
+  @@map("users")
+}
+
+/// ادعای تایید شماره با ربات تلگرام.
+///
+/// وب‌سایت این رکورد را *می‌سازد* و *می‌خواند*؛ تنها ربات تلگرام می‌تواند آن را
+/// VERIFIED کند. یعنی حتی اگر کسی به API عمومی برخورد کند، کاری جز خواندن نمی‌تواند
+/// بکند.
+model PhoneVerification {
+  id      Int                @id @default(autoincrement())
+  /// توکن تصادفی که داخل لینک دیپ‌لینک ربات می‌رود.
+  claim   String             @unique
+  phone   String
+  status  VerificationStatus @default(PENDING)
+  /// شناسه‌ی کاربری تلگرامی که شماره را فرستاده.
+  telegramUserId   String?
+  telegramUsername String?
+  /// شماره‌ای که تلگرام فرستاده — اگر با `phone` فرق داشته باشد MISMATCH می‌شود.
+  telegramPhone    String?
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+
+  @@index([status])
+  @@index([phone])
+  @@map("phone_verifications")
+}
+
+/// یک روز غذا: منو، قیمت رسمی هر ژتون و ظرفیت.
+model MealDay {
+  id            Int           @id @default(autoincrement())
+  title         String
+  mealType      String        @default("ناهار")
+  date          DateTime
+  menu          String
+  officialPrice Int
+  capacity      Int           @default(0)
+  status        MealDayStatus @default(OPEN)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  listings     Listing[]
+  reservations Reservation[]
+
+  @@index([date])
+  @@map("meal_days")
+}
+
+/// آگهی فروش: «۲ ژتون برای سه‌شنبه، ۱۲۰ هزار، تحویل جلوی بوفه، ۱۲ تا ۱۳».
+model Listing {
+  id        Int    @id @default(autoincrement())
+  sellerId  Int
+  mealDayId Int
+  quantity  Int
+  unitPrice Int
+  note      String?
+
+  /// نقطه‌ی تحویل روی نقشه‌ی دانشگاه (WGS84).
+  lat Float
+  lng Float
+  /// توضیح متنی همان نقطه — «ورودی شمالی دانشکده فنی، کنار خودکار».
+  locationText String
+  /// برچسب کوتاه که روی نقشه نشان داده می‌شود، مثل «بوفه دانشکده فنی».
+  placeLabel  String?
+  /// روز و بازه‌ی تحویل که فروشنده خودش اعلام می‌کند.
+  deliveryDate DateTime
+  deliveryFrom String
+  deliveryTo   String
+
+  status    ListingStatus @default(OPEN)
+  expiresAt DateTime
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  seller       User          @relation("SellerListings", fields: [sellerId], references: [id], onDelete: Cascade)
+  mealDay      MealDay       @relation(fields: [mealDayId], references: [id], onDelete: Cascade)
+  reservations Reservation[]
+
+  @@index([mealDayId, status])
+  @@index([sellerId])
+  @@index([deliveryDate])
+  @@map("listings")
+}
+
+/// رزرو خریدار روی یک آگهی.
+model Reservation {
+  id        Int    @id @default(autoincrement())
+  /// کد کوتاه برای ارجاع انسانی در پیام‌رسان.
+  code      String @unique
+  listingId Int
+  buyerId   Int
+  sellerId  Int
+  mealDayId Int
+
+  quantity     Int
+  unitPrice    Int
+  grossAmount  Int
+  feeAmount    Int
+  sellerAmount Int
+
+  status    ReservationStatus @default(RESERVED)
+
+  /// تصویرِ ثابت نقطه‌ی تحویل در لحظه‌ی رزرو: فروشنده بعد از رزرو نمی‌تواند
+  /// محل یا ساعت را عوض کند و خریدار را غافلگیر کند.
+  lat           Float
+  lng           Float
+  meetPoint     String?
+  meetText      String
+  deliveryDate  DateTime
+  deliveryFrom  String
+  deliveryTo    String
+
+  /// فروشنده اعلام می‌کند ژتون را داده است.
+  sellerHandedAt   DateTime?
+  /// خریدار تایید می‌کند ژتون را گرفته است؛ این لحظه پول آزاد می‌شود.
+  buyerConfirmedAt DateTime?
+  /// دلیلی که یکی از طرفین رزرو را اعتراض کرده است؛ مدیر بر اساس همین داوری می‌کند.
+  disputeReason String?
+  disputedAt    DateTime?
+  note       String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  listing      Listing       @relation(fields: [listingId], references: [id])
+  buyer        User          @relation("BuyerReservations", fields: [buyerId], references: [id])
+  seller       User          @relation("SellerReservations", fields: [sellerId], references: [id])
+  mealDay      MealDay       @relation(fields: [mealDayId], references: [id])
+  walletEntries WalletEntry[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@map("reservations")
+}
+
+/// دفتر کیف پول: هر سطر یک حرکت پول به بالا یا پایین.
+/// موجودی = مجموع `amount` کاربر.
+model WalletEntry {
+  id       Int             @id @default(autoincrement())
+  userId   Int
+  kind     WalletEntryKind
+  /// مثبت = ورودی به کیف پول، منفی = خروجی.
+  amount   Int
+  reservationId Int?
+  requestId     Int?
+  note     String?
+  createdAt DateTime @default(now())
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reservation Reservation?  @relation(fields: [reservationId], references: [id])
+  request     WalletRequest? @relation(fields: [requestId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([kind])
+  @@map("wallet_entries")
+}
+
+/// درخواست‌های مالی: شارژ کیف پول و برداشت. تنها چیزی که مدیر می‌بیند.
+model WalletRequest {
+  id       Int               @id @default(autoincrement())
+  userId   Int
+  kind     WalletRequestKind
+  amount   Int
+  status   WalletRequestStatus @default(SUBMITTED)
+  /// تصویر رسید کارت‌به‌کارت (برای شارژ).
+  receiptUrl String?
+  note     String?
+  reviewNote String?
+  reviewerId  Int?
+  createdAt DateTime @default(now())
+  reviewedAt DateTime?
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewer  User?          @relation("RequestReviewer", fields: [reviewerId], references: [id])
+  entries   WalletEntry[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@map("wallet_requests")
+}
+
+/// دفتر مالی پلتفرم — سود، تسویه‌ها.
+model LedgerEntry {
+  id            Int        @id @default(autoincrement())
+  kind          LedgerKind
+  /// مثبت = ورودی به حساب پلتفرم.
+  amount        Int
+  reservationId Int?
+  requestId     Int?
+  note          String?
+  actorId       Int?
+  createdAt     DateTime   @default(now())
+
+  reservation Reservation?   @relation(fields: [reservationId], references: [id])
+  request     WalletRequest? @relation(fields: [requestId], references: [id])
+  actor       User?          @relation("LedgerActor", fields: [actorId], references: [id])
+
+  @@index([kind])
+  @@index([createdAt])
+  @@map("ledger_entries")
+}
+
+model Notification {
+  id     Int       @id @default(autoincrement())
+  userId Int
+  title  String
+  body   String?
+  link   String?
+  readAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}

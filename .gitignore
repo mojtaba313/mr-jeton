@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# keep the example committed even though .env* is ignored
+!.env.example
+
+# generated
+/app/generated/prisma
+
+# local image fallback (when GITHUB_TOKEN is empty)
+/public/uploads

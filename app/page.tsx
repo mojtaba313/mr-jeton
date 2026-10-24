@@ -1,69 +1,230 @@
-import Image from "next/image";
+import { Suspense } from "react";
 
-export default function Home() {
+import { Hero } from "@/components/marketing/hero";
+import {
+  HowItWorks,
+  LiveFeed,
+  ScrollProgress,
+  TrustBar,
+  UpcomingDays,
+} from "@/components/marketing/sections";
+import { ListingCard } from "@/components/market/listing-card";
+import { LinkButton } from "@/components/ui/button";
+import { EmptyState, Reveal, SkeletonCard } from "@/components/ui/motion-primitives";
+import { SectionHeading } from "@/components/marketing/sections";
+
+import { currentUser } from "@/lib/auth";
+import { FEE_PERCENT } from "@/lib/config";
+import { formatJalaliShort } from "@/lib/dates";
+import {
+  getMarketListings,
+  getMarketStats,
+  getRecentSales,
+  getUpcomingDays,
+} from "@/lib/queries";
+import { walletBalance } from "@/lib/wallet";
+
+/**
+ * صفحه‌ی اصل.
+ *
+ * Static shell (hero + how it works) renders at build time; every number and
+ * every listing streams in behind `<Suspense>`. That split is why the first
+ * paint is instant on a phone with two bars of signal, while the live counts
+ * still come from Postgres on every visit.
+ */
+
+export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <>
+      <ScrollProgress />
+      <Suspense fallback={<HeroSkeleton />}>
+        <HeroBlock />
+      </Suspense>
+
+      <Suspense fallback={<TrustBarSkeleton />}>
+        <TrustBarBlock />
+      </Suspense>
+
+      <Suspense fallback={<SectionSkeleton />}>
+        <UpcomingDaysBlock />
+      </Suspense>
+
+      <HowItWorks />
+
+      <Suspense fallback={<SectionSkeleton />}>
+        <LiveMarketBlock />
+      </Suspense>
+
+      <Suspense fallback={<SectionSkeleton />}>
+        <LiveFeedBlock />
+      </Suspense>
+
+      <FinalCta />
+    </>
+  );
+}
+
+async function HeroBlock() {
+  const [stats, days] = await Promise.all([getMarketStats(), getUpcomingDays(1)]);
+  const next = days[0];
+
+  return (
+    <Hero
+      stats={stats}
+      nextDay={
+        next ? { title: next.title, dateLabel: formatJalaliShort(next.date), tokens: next.availableTokens } : null
+      }
+    />
+  );
+}
+
+async function TrustBarBlock() {
+  const stats = await getMarketStats();
+  return <TrustBar profit={stats.profit} completed={stats.completed} />;
+}
+
+async function UpcomingDaysBlock() {
+  const days = await getUpcomingDays(6);
+  return (
+    <UpcomingDays
+      days={days.map((day) => ({
+        id: day.id,
+        title: day.title,
+        mealType: day.mealType,
+        menu: day.menu,
+        dateLabel: formatJalaliShort(day.date),
+        officialPrice: day.officialPrice,
+        statusLabel: day.statusLabel,
+        openListings: day.openListings,
+        availableTokens: day.availableTokens,
+      }))}
+    />
+  );
+}
+
+async function LiveMarketBlock() {
+  const [listings, user] = await Promise.all([getMarketListings({}), currentUser()]);
+  const balance = user ? await walletBalance(user.id) : null;
+  const userId = user?.id ?? -1;
+
+  return (
+    <section className="mx-auto max-w-7xl px-4 pb-8 sm:px-6">
+      <Reveal>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <SectionHeading
+            align="start"
+            eyebrow="همین حالا"
+            title="ژتون‌های آماده‌ی فروش"
+            description="قیمت و محل و ساعت — همین‌هایی که خریدار می‌بیند."
+          />
+          <LinkButton href="/market" variant="ghost" size="sm">
+            دیدن همه
+          </LinkButton>
+        </div>
+      </Reveal>
+
+      {listings.length === 0 ? (
+        <EmptyState
+          className="mt-10"
+          title="الان ژتونی برای فروش نیست"
+          description="اگر ژتون اضافه داری، اولین آگهی را بگذار تا بازار راه بیفتد."
+          action={<LinkButton href="/sell">فروش ژتون</LinkButton>}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+      ) : (
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {listings.slice(0, 3).map((listing, index) => (
+            <ListingCard
+              key={listing.id}
+              listing={{ ...listing, feePercent: FEE_PERCENT }}
+              index={index}
+              isOwner={listing.sellerId === userId}
+              isSignedIn={Boolean(user)}
+              balance={balance}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          ))}
         </div>
-      </main>
+      )}
+    </section>
+  );
+}
+
+async function LiveFeedBlock() {
+  const items = await getRecentSales(5);
+  return <LiveFeed items={items} />;
+}
+
+function FinalCta() {
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
+      <Reveal>
+        <div className="glass-strong aura relative overflow-hidden rounded-[2rem] px-6 py-14 text-center">
+          <h2 className="mx-auto max-w-2xl text-[clamp(1.5rem,3.6vw,2.4rem)] font-black leading-tight tracking-tight text-ink">
+            ژتونی که امروز بی‌استفاده می‌ماند،
+            <br />
+            فردا ناهار یک نفر دیگر است.
+          </h2>
+          <p className="mx-auto mt-5 max-w-xl text-[14px] leading-8 text-ink-muted">
+            ثبت‌نام با شماره تماس و تاییدشده با تلگرام، بدون ایمیل و بدون
+            فرم‌های طولانی. پول تا لحظه‌ی تحویل امن می‌ماند.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <LinkButton href="/register" size="lg">
+              ساخت حساب
+            </LinkButton>
+            <LinkButton href="/how-it-works" variant="outline" size="lg">
+              قوانین و روند
+            </LinkButton>
+          </div>
+        </div>
+      </Reveal>
+    </section>
+  );
+}
+
+/* ----------------------------- اسکلت‌ها ----------------------------- */
+
+function HeroSkeleton() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 pb-20 pt-16 sm:px-6">
+      <div className="skeleton h-7 w-64 rounded-full" />
+      <div className="mt-6 space-y-3">
+        <div className="skeleton h-12 w-80 max-w-full" />
+        <div className="skeleton h-12 w-56" />
+      </div>
+      <div className="mt-6 max-w-xl space-y-2">
+        <div className="skeleton h-4 w-full" />
+        <div className="skeleton h-4 w-11/12" />
+        <div className="skeleton h-4 w-9/12" />
+      </div>
+      <div className="mt-9 flex gap-3">
+        <div className="skeleton h-13 w-44 rounded-2xl" />
+        <div className="skeleton h-13 w-40 rounded-2xl" />
+      </div>
+    </div>
+  );
+}
+
+function TrustBarSkeleton() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 sm:px-6">
+      <div className="skeleton h-32 w-full rounded-xl2" />
+    </div>
+  );
+}
+
+function SectionSkeleton() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+      <div className="mx-auto max-w-xl space-y-3">
+        <div className="skeleton mx-auto h-6 w-32 rounded-full" />
+        <div className="skeleton mx-auto h-9 w-72" />
+        <div className="skeleton mx-auto h-4 w-full" />
+      </div>
+      <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }, (_, i) => (
+          <SkeletonCard key={i} />
+        ))}
+      </div>
     </div>
   );
 }

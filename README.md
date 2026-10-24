@@ -1,36 +1,310 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# آقای ژتون — بازار ژتون غذای دانشگاه
 
-## Getting Started
+بازار خرید و فروش ژتون غذا بین دانشجویان: کسی که یادتان رفته ژتون رزرو کند، می‌خرد؛
+کسی که رزرو کرده و استفاده نمی‌کند، می‌فروشد.
 
-First, run the development server:
+پول از مسیر **کیف پول** رد می‌شود، نه از مسیر مستقیم خریده به فروشنده: خریدار اول
+کیف پولش را شارژ می‌کند (رسید کارت‌به‌کارت، تایید مدیر)، بعد ژتون را می‌خرد و پولش تا
+تحویل در سایت قفل می‌ماند.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+Next.js 16 (App Router, Cache Components) · React 19 · TypeScript
+Prisma 7 + PostgreSQL · Tailwind CSS 4 · Motion · Zod · Leaflet
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## راه‌اندازی
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+پیش‌نیاز: Node 22+، PostgreSQL 15+، `pnpm`.
 
-## Learn More
+```bash
+pnpm install
+cp .env.example .env          # مقادیر را پر کن
+pnpm setup                    # generate + migrate deploy + seed
+pnpm dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+`pnpm setup` هر سه کار را می‌کند: ساخت کلاینت Prisma، اجرای مهاجرت‌ها، و ساخت داده‌ی
+نمونه. اگر دیتابیس از قبل داده دارد، `pnpm db` (همان `migrate deploy`) کافی است.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### دیتابیس
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```sql
+CREATE ROLE mrjeton LOGIN PASSWORD '…' CREATEDB;
+CREATE DATABASE mrjeton OWNER mrjeton;
+```
 
-## Deploy on Vercel
+`CREATEDB` لازم است چون Prisma برای مهاجرت یک **shadow database** می‌سازد. بدون آن
+`migrate dev` با خطای P3014 می‌شکند.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+DATABASE_URL="postgresql://mrjeton:…@127.0.0.1:5432/mrjeton?schema=public"
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### حساب‌های نمونه (بعد از `pnpm seed`)
+
+| نقش | شماره | رمز |
+| --- | --- | --- |
+| مدیر | `09120000001` | `demo1234` |
+| دانشجو | `09121110001` (سارا) | `demo1234` |
+
+شماره **تنها** راه ورود است؛ ایمیل و رمز بازیابی حذف شده‌اند، چون در این بازار شماره
+هم برای تایید و هم برای اطلاعات تماس لازم است. رمز `demo1234` است و در سرور واقعی
+باید عوض شود.
+
+داده‌ی نمونه عمداً وضعیت‌های مختلف یک رزرو (باز، در انتظار تایید خریدار، تمام‌شده،
+لغوشده) و چند درخواست کیف پول را پوشش می‌دهد تا پنل مدیر و داشبورد را بدون ساختن
+دستیِ داده ببینید.
+
+---
+
+## تایید شماره با تلگرام
+
+ثبت‌نام بدون تایید شماره ممکن نیست. سایت یک «ادعای» یک‌بارمصرف می‌سازد و لینک
+`t.me/<bot>?start=<claim>` را می‌دهد؛ ربات شماره را **از خود تلگرام** می‌گیرد (کاربر
+هیچ‌وقت شماره را تایپ نمی‌کند) و آن را با ادعا مقایسه می‌کند.
+
+```env
+TELEGRAM_BOT_TOKEN="…"          # فقط سرور؛ هرگز NEXT_PUBLIC_
+TELEGRAM_BOT_USERNAME="mrjeton_test_bot"
+TELEGRAM_WEBHOOK_SECRET="…"     # openssl rand -hex 16 — فقط برای حالت وب‌هوک
+TELEGRAM_VERIFICATION_BYPASS="false"
+```
+
+### دو حالت اجرا، یک منطق
+
+منطق ربات در `lib/telegram-bot.ts` است و هیچ‌کاری در زمان import نمی‌کند؛ فقط
+«یک آپدیت را بگیر، نتیجه را بنویس». دو ترابری روی همان منطق سوار می‌شوند:
+
+**۱) وب‌هوک — برای Vercel و هر هاست سرورلس.** هیچ پروسه‌ی دائمی لازم نیست؛ تلگرام
+خودش `POST /api/telegram/webhook` را صدا می‌زند. یک‌بار بعد از دیپلوی:
+
+```bash
+NEXT_PUBLIC_SITE_URL="https://your-domain" pnpm bot:webhook
+```
+
+تلگرام فقط روی HTTPS با گواهی معتبر وب‌هوک می‌پذیرد (دامنه‌ی Vercel همین را دارد)، و
+سربرگ `X-Telegram-Bot-Api-Secret-Token` را با `TELEGRAM_WEBHOOK_SECRET` می‌سنجد؛
+هر درخواستی که این سربرگ را نداشته باشد ۴۰۱ می‌گیرد.
+
+**۲) long polling — برای لپ‌تاپ یا VPS.** یک پروسه‌ی همیشه‌بیدار:
+
+```bash
+pnpm bot              # دائمی
+pnpm bot:once         # فقط یک گرد، برای تست
+pnpm bot:webhook:off  # حذف وب‌هوک، تا getUpdates دوباره کار کند
+```
+
+این دو با هم جمع نمی‌شوند: تلگرام وقتی وب‌هوک ثبت باشد، `getUpdates` را با ۴۰۹ رد
+می‌کند. با دو فرمان `bot:webhook` و `bot:webhook:off` جابه‌جا شو — روی Vercel هیچ‌وقت
+`pnpm bot` را اجرا نکن.
+
+### نکته‌های امنیتی جریان تایید
+
+- **`/start <claim>` ادعا را به کاربر تلگرام گره می‌زند.** پیام «ارسال شماره» دیگر
+  متن `/start` ندارد؛ بدون این گره، پیام تماس هیچ راهی برای پیدا کردن ادعا نداشت.
+- **شماره از خود تلگرام می‌آید.** تنها راه تایید این است که تلگرام شماره‌ای را
+  بفرستد که برای همان حساب تایید کرده؛ ربات شماره‌ی تایپ‌شده قبول نمی‌کند.
+- **عدم تطابق هم ثبت می‌شود** (MISMATCH) تا معلوم بماند چه کسی با شماره‌ی خودش ادعای
+  شماره‌ی دیگری را کرده.
+- اگر توکن/یوزرنیم خالی باشد، `POST /api/verify/phone` خطای صریح می‌دهد (نه یک
+  «در انتظار» بی‌پایان). برای توسعه‌ی محلی می‌شود `TELEGRAM_VERIFICATION_BYPASS="true"`
+  گذاشت — **هرگز روی سرور واقعی**.
+- ادعا ۲۰ دقیقه اعتبار دارد؛ انقضا هنگام خواندن وضعیت و هنگام حل‌کردن بررسی می‌شود.
+
+---
+
+## تصویرها: گیت‌هاب به‌جای سرویس ابری
+
+رسیدهای کارت‌به‌کارت و عکس‌ها به‌صورت **کامیت در یک ریپوی گیت‌هاب** ذخیره می‌شوند
+(Contents API): بدون هزینه‌ی ماهانه، با CDN رایگان، و با تاریخچه‌ی کامل. در عوض فایل‌ها
+عمومی‌اند و هر نوشتن یک کامیت.
+
+```env
+GITHUB_BUCKET_OWNER="mojtaba313"
+GITHUB_BUCKET_REPO="bucket"
+GITHUB_BUCKET_BRANCH="main"
+GITHUB_BUCKET_DIR="mr-jeton"      # پوشه‌ای که فایل‌های این سایت آنجاست
+GITHUB_TOKEN="github_pat_…"       # fine-grained · همین یک ریپو · Contents: read+write
+```
+
+- توکن فقط **سمت سرور** خوانده می‌شود (`lib/storage/github.ts`) و هرگز `NEXT_PUBLIC_`
+  نمی‌گیرد. مرورگر فقط با `/api/upload` حرف می‌زند.
+- ساختار مسیر: `mr-jeton/<receipts|avatars>/<سال>/<uuid>.<ext>` — نام فایل ساخته
+  می‌شود، از کاربر گرفته نمی‌شود؛ پسوند از نوع MIME می‌آید نه از نام فایل.
+- اگر `GITHUB_TOKEN` خالی باشد، آپلودها در `public/uploads/` ذخیره می‌شوند تا
+  توسعه بدون توکن هم کار کند. با پر کردن توکن، ذخیره‌سازی گیت‌هاب فعال می‌شود
+  (`lib/storage/index.ts`).
+
+---
+
+## تنظیمات دیگر
+
+| متغیر | کار |
+| --- | --- |
+| `JWT_SECRET_KEY` | امضای کوکی نشست (۷ روز). عوض کردنش همه را logout می‌کند. |
+| `PAYMENT_CARD_NUMBER` / `PAYMENT_CARD_HOLDER` | کارتی که کاربر برای شارژ کیف پول به آن واریز می‌کند. |
+| `PLATFORM_FEE_PERCENT` | سهم سایت از هر رزروی موفق (پیش‌فرض ۵). تنها خط درآمد. |
+| `NEXT_PUBLIC_SITE_URL` | مبنای متادیتا و لینک‌های اشتراک‌گذاری. |
+| `NEXT_PUBLIC_MAP_*` | قاب نقشه، برچسب، و آدرس تایل‌ها (پیش‌فرض OpenStreetMap). |
+
+---
+
+## روند یک معامله
+
+```
+فروشنده آگهی می‌گذارد (تعداد، قیمت هر ژتون، نقطه‌ی تحویل روی نقشه، بازه‌ی زمانی)
+      ↓
+خریدار ژتون را رزرو می‌کند        → پول از کیف پول خریدار قفل (HOLD) می‌شود
+                                  → نام و شماره‌ی فروشنده همین‌جا آشکار می‌شود
+      ↓
+فروشنده «ژتون را دادم» را می‌زند → رزرو: «در انتظار تایید خریدار»
+      ↓
+خریدار تایید می‌کند              → سهم فروشنده (RELEASE) + سهم سایت (FEE در دفتر مالی)
+      ↓
+هر کدام پیش از این نقطه بخواهد     → لغو (بازگشت پول) یا اعتراض (قفل + داوری مدیر)
+```
+
+فروشنده **نمی‌تواند** بگوید پولش را گرفته‌ام؛ فقط می‌گوید ژتون را داده‌ام، و خریدار
+تایید می‌کند. بدون این تفکیک، escrow فقط یک پرداخت با تأخیر است و هیچ حفاظی از خریدار
+نمی‌کند.
+
+### کیف پول و دفتر مالی
+
+- **موجودی** ستون ذخیره‌شده ندارد: `SUM(WalletEntry.amount)` برای آن کاربر. هر عددی
+  که می‌بینید از روی دفتر قابل بازسازی است.
+- هر برداشت از موجودی زیر قفل یک `pg_advisory_xact_lock` می‌گیرد و تراکنش
+  `Serializable` است؛ دو خریدار هم‌زمان نمی‌توانند بیشتر از موجودی خرج کنند.
+- «موجودی قفل‌شده» فقط از رزروهای باز (`RESERVED`، `AWAITING_BUYER`، `DISPUTED`)
+  حساب می‌شود؛ جمعِ همه‌ی `HOLD`های تاریخی عدد را بی‌نهایت بزرگ می‌کرد.
+- سایت هیچ‌وقت از پول کاربران برداشت نمی‌کند. موجودی سیستم = موجودی کاربران منهای
+  برداشت‌های پرداخت‌شده، و کارمزدها فقط وقتی به درآمد تبدیل می‌شوند که فروشنده آن
+  را درخواست و مدیر تایید کند.
+
+### نقش مدیر
+
+مدیر در معامله دخالتی ندارد و هیچ پولی جابه‌جا نمی‌کند: رسید شارژ را بررسی می‌کند،
+برداشت‌ها را واریز و تایید می‌کند، روزهای غذا و کاربران را مدیریت می‌کند، و وقتی یکی
+از طرفین اعتراض کرد، داوری می‌کند (پول به خریدار برمی‌گردد یا به فروشنده می‌رسد).
+
+---
+
+## حریم خصوصی
+
+- بازار عمومی **نام و شماره‌ی هیچ‌کس** را نشان نمی‌دهد؛ کوئری‌های لیست اصلاً این
+  ستون‌ها را نمی‌گیرند، نه این‌که بعداً پنهانشان کنیم.
+- اطلاعات تماس فقط برای دو طرف یک رزرو باز قابل مشاهده است.
+- نقطه و ساعت تحویل در لحظه‌ی رزرو **اسنپ‌شات** می‌شود (`lat/lng/meetText` روی خود
+  رزرو)، پس فروشنده بعداً نمی‌تواند محل را عوض کند و خریدار را غافلگیر کند.
+
+---
+
+## ساختار
+
+```
+app/
+  (auth)/login · register        ورود و ثبت‌نام با شماره
+  market · sell · how-it-works   بازار، ثبت آگهی، قوانین
+  wallet                         کیف پول، شارژ، برداشت
+  dashboard/…                    رزروها، آگهی‌ها، اعلان‌ها
+  admin/…                        درخواست‌ها، رزروها، روزهای غذا، کاربران، دفتر مالی
+  actions/                       server action ها (auth · market · wallet · admin)
+  api/upload                     آپلود تصویر
+  api/verify/phone · verify/status ساخت ادعا و خواندن وضعیت (فقط GET/خواندن)
+  api/telegram/webhook           دریافت آپدیت‌های ربات (فقط برای Vercel/سرورلس)
+components/
+  ui/                            button · card · form · dialog · badge · primitives
+  site/ marketing/ market/ map/ dashboard/ admin/ auth/
+lib/
+  db · prisma · auth · proxy     اتصال، نشست، دروازه‌ی احراز هویت
+  queries · wallet · money       کوئری‌ها، تراکنش مالی، گِردکردن مبلغ
+  verification-core · telegram   منطق تایید شماره (مشترک با ربات)
+  storage/github · storage/index باکت گیت‌هاب + fallback دیسک محلی
+  dates · labels · validation · config · maps
+bot/index.ts                     ربات تلگرام (long-polling)
+prisma/
+  schema.prisma · seed.ts · migrations/
+```
+
+### چند تصمیم که ارزش توضیح دارند
+
+**توکن نشست در proxy تایید می‌شود، نه در رندر.** `jsonwebtoken` داخل خود
+`Date.now()` صدا می‌زند و زیر Cache Components همان خواندن، رندرِ بعد از
+`revalidatePath()` را با خطای «unstable value» از کار می‌اندازد. برای همین
+`proxy.ts` توکن را یک‌بار تایید می‌کند و فقط شماره‌ی کاربر را به‌صورت هدر داخلی به
+رندر می‌فرستد (`lib/session-constants.ts`).
+
+**Leaflet فقط با `ssr: false` و با استایل خودش.** ماژول Leaflet در سطح ماژول به
+`window` دست می‌زند، پس `dynamic(..., { ssr: false })` لازم است — یک `import()`
+ساده داخل افکت کافی نیست. `leaflet/dist/leaflet.css` هم **اجباری** است: بدون آن
+`.leaflet-pane` ها `static` می‌مانند و نقشه به‌جای لایه‌های روی‌هم، در جریان عادی صفحه
+تلنبار می‌شود و پین‌ها بیرون از کادر می‌افتند.
+
+**انیمیشن ورود محتوای بالای صفحه CSS است، نه Motion.** چیزی که با
+`initial={{ opacity: 0 }}` رندر شود تا لحظه‌ی آب‌رسانی جاوااسکریپت نامرئی است؛
+یعنی روی شبکه‌ی کند، هیروی سایت یک جای خالی است. انیمیشن CSS در اولین paint اجرا
+می‌شود و `motion` جای خودش را نگه داشته: پارالاکس اسکرول، اسپرینگ دکمه‌ها، `layoutId`
+برای تب‌ها، و دیالوگ‌ها.
+
+**تاریخ‌ها با `Intl` و تقویم `Asia/Tehran`.** نه کتابخانه، نه الگوریتم دست‌نویس:
+`new Intl.DateTimeFormat("fa-IR-u-ca-persian", …)` همان کاری را می‌کند که صد خط کد
+الگوریتمی می‌کرد و یک روز خطا می‌داد. «روز غذا» همیشه نیمه‌شب تهران ذخیره می‌شود.
+
+**پول، عدد صحیح تومان است.** بدون ممیز شناور. سهم سایت در `splitAmount` محاسبه و به
+هزار تومان گرد می‌شود، برای همین `fee + seller === gross` همیشه دقیقاً برابر است.
+
+**یک منبع حقیقت برای «قفل‌بودن».** فهرست `HELD_RESERVATION_STATUSES` هم تعیین می‌کند
+کدام رزروها ژتون را از آگهی نگه می‌دارند، هم موجودی قفل را. اگر این دو جدا شوند، اعتراض
+یعنی «پول قفل است ولی ژتون را کسی دیگر می‌فروشد».
+
+---
+
+## اسکریپت‌ها
+
+| فرمان | کار |
+| --- | --- |
+| `pnpm dev` | سرور توسعه |
+| `pnpm build` / `pnpm start` | بیلد و اجرای نسخه‌ی تولید |
+| `pnpm lint` / `pnpm tc` | ESLint و TypeScript |
+| `pnpm db` | `migrate deploy` (برای سرور) |
+| `pnpm db:dev` | `migrate dev` (برای توسعه) |
+| `pnpm seed` | داده‌ی نمونه |
+| `pnpm studio` | Prisma Studio |
+| `pnpm bot` / `pnpm bot:once` | ربات با long polling: دائمی / یک‌بار |
+| `pnpm bot:webhook` / `bot:webhook:off` | ثبت یا حذف وب‌هوک تلگرام (برای Vercel) |
+
+---
+
+## استقرار روی Vercel
+
+ربات روی Vercel **وب‌هوک** می‌شود، نه پروسه‌ی دائمی — این هاست نمی‌تواند یک حلقه‌ی
+بی‌پایان را زنده نگه دارد، ولی `POST /api/telegram/webhook` را می‌تواند بی‌نهایت بار
+اجرا کند. هیچ سرور دیگری لازم نیست.
+
+1. **دیتابیس:** یک Postgres (Neon/Supabase/Railway) بساز و `DATABASE_URL` را بگذار.
+   برای سرورلس آدرس **pooled** را بگیر (مثلاً `?pgbouncer=true&connection_limit=1`)،
+   وگرنه هر نمونه‌ی تابع یک ارتباط تازه باز می‌کند و دیتابیس خیلی زود پر می‌شود.
+2. **متغیرها:** همه‌ی رازها را در Project Settings → Environment Variables بگذار.
+   دو نکته که فراموش می‌شوند:
+   - `NEXT_PUBLIC_*` (آدرس سایت و مختصات نقشه) در **زمان بیلد** داخل باندل می‌روند؛
+     اگر بعد از اولین دیپلوی عوضشان کنی، باید دوباره deploy کنی.
+   - `TELEGRAM_VERIFICATION_BYPASS` باید `false` باشد، وگرنه هر کسی با هر شماره‌ای
+     ثبت‌نام می‌کند.
+3. **مهاجرت‌ها:** محلی یا در یک استپ CI، این را روی دیتابیس پروداکشن بزن:
+   `pnpm db` (= `prisma migrate deploy`). `pnpm seed` را روی پروداکشن **اجرا نکن**؛
+   آن چند حساب دمو با رمز `demo1234` می‌سازد.
+4. **بیلد:** Vercel خودش `pnpm build` را می‌زند. `DATABASE_URL` را در بیلد هم بده، چون
+   رندرهای Partial Prerender حین بیلد به دیتابیس سر می‌زنند.
+5. **Storage:** بدون `GITHUB_TOKEN` فایل‌ها روی دیسک توابع می‌روند و در هر deploy
+   از بین می‌روند. توکن باکت را حتماً بگذار (فقط Contents: read+write، فقط همان ریپو).
+6. **وب‌هوک:** بعد از اینکه دامنه بالا آمد، از لپ‌تاپ (با همان `.env`) بزن:
+   ```bash
+   NEXT_PUBLIC_SITE_URL="https://your-domain" pnpm bot:webhook
+   ```
+   خروجی `وب‌هوک ثبت شد` یعنی تلگرام آدرس را قبول کرده است.
+7. **تست:** با تلگرام خودت ثبت‌نام کن (لینک را باز کن، شماره بفرست)، بعد یک شارژ
+   کیف پول با رسید بساز — این دو تأیید می‌کنند که هم ربات و هم Storage درست‌اند.
+
+اگر چند نمونه (instance) داری، `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` را هم یک‌بار
+تنظیم کن تا اکشن‌ها بین نمونه‌ها کار کنند.
