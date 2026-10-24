@@ -43,8 +43,8 @@ async function DaysBlock() {
     title: day.title,
     mealType: day.mealType,
     menu: day.menu,
-    // تاریخ میلادی برای <input type="date">: به وقت تهران محاسبه می‌شود تا
-    // انتخاب مدل با همان روزی که در بازار می‌بیند یکی باشد.
+    // میلادیِ به‌وقت‌تهران: همین رشته است که انتخاب‌گر شمسی را با همان روزی
+    // که در بازار می‌بیند هم‌تراز می‌کند.
     dateISO: toDateInput(day.date),
     officialPrice: day.officialPrice,
     capacity: day.capacity,
@@ -54,7 +54,9 @@ async function DaysBlock() {
     ordersCount: day.reservationsCount,
   }));
 
-  return <MealDayManager days={rows} />;
+  // امروز به وقت تهران: انتخاب‌گر، روزهای گذشته را غیرفعال می‌کند — و ثبت روز
+  // غذا در گذشته از سمت بازار هم بی‌معنی است.
+  return <MealDayManager days={rows} todayISO={toDateInput(new Date())} />;
 }
 
 function DaysSkeleton() {

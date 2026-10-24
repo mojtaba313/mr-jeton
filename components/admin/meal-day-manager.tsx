@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, IconButton } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Select, Textarea } from "@/components/ui/form";
+import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
 import { EmptyState } from "@/components/ui/motion-primitives";
 import { toJalali, toPersianDigits } from "@/lib/dates";
 import { formatNumber } from "@/lib/money";
@@ -24,10 +25,10 @@ import { DAY_STATUS } from "@/lib/labels";
 /**
  * مدیریت روزهای غذا.
  *
- * The date input is a Gregorian `<input type="date">` on purpose: every OS ships
- * a working Gregorian picker, and hand-rolling a Jalali calendar input costs a
- * month and still misses the native wheel on iOS. What the admin picks in
- * Gregorian is stored as Tehran midnight and displayed in Jalali everywhere.
+ * The date comes from the same Jalali picker the sell form uses, so an admin
+ * never converts months in their head: they pick «۱۲ آبان», the hidden input
+ * carries the Gregorian `YYYY-MM-DD` that the action already expects, and the
+ * row below shows the day in Jalali again.
  */
 
 export type DayRow = {
@@ -49,7 +50,14 @@ const STATUS_OPTIONS = Object.entries(DAY_STATUS).map(([value, meta]) => ({
   label: meta.label,
 }));
 
-export function MealDayManager({ days }: { days: DayRow[] }) {
+export function MealDayManager({
+  days,
+  todayISO,
+}: {
+  days: DayRow[];
+  /** امروز به وقت تهران، `YYYY-MM-DD` — کمترین روزِ قابل انتخاب. */
+  todayISO: string;
+}) {
   const [editing, setEditing] = useState<DayRow | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -84,6 +92,7 @@ export function MealDayManager({ days }: { days: DayRow[] }) {
       <MealDayDialog
         open={creating || editing !== null}
         day={editing}
+        todayISO={todayISO}
         onClose={() => {
           setCreating(false);
           setEditing(null);
@@ -184,10 +193,12 @@ function DayRowCard({
 function MealDayDialog({
   open,
   day,
+  todayISO,
   onClose,
 }: {
   open: boolean;
   day: DayRow | null;
+  todayISO: string;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -207,6 +218,9 @@ function MealDayDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
+  // روز گذشته‌ای که در حال ویرایشش هستیم نباید بی‌دلیل غیرفعال شود.
+  const minISO = day && day.dateISO < todayISO ? day.dateISO : todayISO;
+
   return (
     <Dialog
       open={open}
@@ -215,7 +229,7 @@ function MealDayDialog({
       description={
         day
           ? "تغییرات بلافاصله در بازار اعمال می‌شود."
-          : "تاریخ را میلادی انتخاب کن؛ سایت آن را جلالی نشان می‌دهد."
+          : "روز غذا را از تقویم شمسی انتخاب کن؛ به وقت تهران ذخیره می‌شود."
       }
       className="max-w-xl"
     >
@@ -243,15 +257,15 @@ function MealDayDialog({
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="تاریخ (میلادی)"
-            name="date"
-            type="date"
-            dir="ltr"
-            required
-            defaultValue={day?.dateISO ?? ""}
-            error={state?.errors?.date}
-          />
+          <div className="space-y-2">
+            <span className="block text-[13px] font-medium text-ink-soft">تاریخ</span>
+            <JalaliDatePicker
+              name="date"
+              defaultValue={day?.dateISO ?? todayISO}
+              minISO={minISO}
+              error={state?.errors?.date}
+            />
+          </div>
           <Select
             label="وضعیت"
             name="status"
