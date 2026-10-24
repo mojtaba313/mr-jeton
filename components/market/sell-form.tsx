@@ -8,6 +8,7 @@ import { createListingAction, type MarketState } from "@/app/actions/market";
 import { LocationPicker } from "@/components/map/location";
 import { Button } from "@/components/ui/button";
 import { Field, SegmentedControl, Textarea } from "@/components/ui/form";
+import { JalaliDatePicker } from "@/components/ui/jalali-date-picker";
 import { MAP } from "@/lib/config";
 import { toPersianDigits } from "@/lib/dates";
 import { parseToman, roundToThousand } from "@/lib/money";
@@ -23,9 +24,16 @@ import { formatCoords } from "@/lib/maps";
 export function SellForm({
   days,
   officialPrice,
+  defaultDateISO,
+  minDateISO,
+  maxDateISO,
 }: {
   days: { id: number; label: string; hint: string; dateISO: string }[];
   officialPrice: number;
+  /** روز پیشنهادی و بازه‌ی مجاز تحویل — سمت سرور حساب می‌شوند، به‌وقت تهران. */
+  defaultDateISO: string;
+  minDateISO: string;
+  maxDateISO: string;
 }) {
   const [state, action, pending] = useActionState<MarketState, FormData>(
     createListingAction,
@@ -169,34 +177,41 @@ export function SellForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Field
-          label="روز تحویل"
-          name="deliveryDate"
-          type="date"
-          dir="ltr"
-          required
-          defaultValue={days[0]?.dateISO}
-          error={state?.errors?.deliveryDate}
-        />
+        {/* تقویم شمسی: کاربر «۲۵ مهر» را می‌بیند، فرم همان روزِ میلادی را
+            می‌فرستد — قرارداد اعتبارسنجی سرور عوض نمی‌شود. */}
+        <div className="space-y-2">
+          <span className="block text-[13px] font-medium text-ink-soft">روز تحویل</span>
+          <JalaliDatePicker
+            name="deliveryDate"
+            defaultValue={defaultDateISO}
+            minISO={minDateISO}
+            maxISO={maxDateISO}
+            error={state?.errors?.deliveryDate}
+          />
+        </div>
         <Field
           label="از ساعت"
           name="deliveryFrom"
+          type="time"
           required
           dir="ltr"
           defaultValue="12:00"
-          placeholder="12:00"
           error={state?.errors?.deliveryFrom}
         />
         <Field
           label="تا ساعت"
           name="deliveryTo"
+          type="time"
           required
           dir="ltr"
           defaultValue="13:30"
-          placeholder="13:30"
           error={state?.errors?.deliveryTo}
         />
       </div>
+
+      <p className="-mt-1 text-[12px] leading-5 text-ink-faint">
+        روز و ساعت‌ها به وقت تهران است؛ خریدار همان بازه را می‌بیند و سر وقت می‌آید.
+      </p>
 
       <Textarea
         label="توضیح دیگر (اختیاری)"

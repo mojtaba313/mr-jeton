@@ -209,6 +209,88 @@ export function toDateInput(date: Date): string {
   return gregorianInTehran.format(date);
 }
 
+/* ------------------------------------------------------------------ *
+ *  تقویم شمسی برای انتخاب روز
+ *
+ *  `Intl` فقط مسیر میلادی → جلالی را می‌دهد. شبکه‌ی تقویم به مسیر برگشت هم
+ *  نیاز دارد، و اینجا آن مسیر با پیمایش روزبه‌رو ساخته می‌شود: از یک لنگرِ
+ *  معلوم جلو می‌رویم و هر قدم را با همان ICU می‌سنجیم تا روزِ خواسته‌شده پیدا
+ *  شود. کندتر از یک فرمول است (چند صد تبدیل ساده، یک‌بار برای هر ماه)، ولی
+ *  هیچ ثابت جادویی ندارد و در نوروز همان روزی را می‌دهد که `formatJalali`
+ *  نشان می‌دهد — چون هر دو از یک منبع می‌آیند.
+ * ------------------------------------------------------------------ */
+
+const DAY_MS = 86_400_000;
+
+const weekdayShort = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  timeZone: TEHRAN_TZ,
+});
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+export type JalaliMonthDay = {
+  /** روزِ ماه جلالی، با ارقام لاتین. */
+  day: number;
+  /** همان روز به میلادی، به‌وقت تهران — `YYYY-MM-DD` برای مقدار فرم. */
+  dateISO: string;
+  /** ۰ = یکشنبه … ۶ = شنبه، به‌وقت تهران. */
+  weekday: number;
+};
+
+/** همه‌ی روزهای یک ماه جلالی، هرکدام با تاریخ میلادیِ همان روز. */
+export function jalaliMonthDays(jy: number, jm: number): JalaliMonthDay[] {
+  // ۱ فروردینِ هر سال حدود ۲۱ مارسِ سال میلادیِ (jy + 621) است؛ پس پیمایش را
+  // از ۱ ژانویه‌ی همان سال شروع می‌کنیم. دورترین ماه (اسفند) حدود ۴۴۴ قدم
+  // دورتر است — سقف ۴۷۰ با حاشیه.
+  let t = Date.UTC(jy + 621, 0, 1, 20, 30, 0, 0);
+
+  for (let step = 0; step <= 470; step += 1, t += DAY_MS) {
+    const j = toJalali(new Date(t));
+    if (j.jy !== jy || j.jm !== jm) continue;
+
+    // آغاز ماه پیدا شد؛ روزها را تا اولین روزِ ماه بعد جمع می‌کنیم.
+    const days: JalaliMonthDay[] = [];
+    for (; days.length < 32; t += DAY_MS) {
+      const at = new Date(t);
+      const day = toJalali(at);
+      if (day.jy !== jy || day.jm !== jm) break;
+
+      days.push({
+        day: day.jd,
+        dateISO: gregorianInTehran.format(at),
+        weekday: WEEKDAY_INDEX[weekdayShort.format(at)] ?? 0,
+      });
+    }
+
+    return days;
+  }
+
+  return [];
+}
+
+/**
+ * `YYYY-MM-DD` (به‌وقت تهران) → اجزای جلالیِ همان روز.
+ *
+ * دقت در `d - 1`: نیمه‌شبِ تهرانِ روزِ d در UTC، ۲۰:۳۰ روزِ d-1 است (همان
+ * قراردادی که `tehranMidnight` هم دارد). اگر به‌جایش ۲۰:۳۰ روزِ d گرفته شود،
+ * لحظه‌ی نیمه‌شب روزِ بعد است و تاریخ یک روز جلو می‌افتد.
+ */
+export function dateInputToJalali(iso: string): Jalali {
+  const [y, m, d] = iso.split("-").map((part) => Number(part));
+  if (!y || !m || !d) return { jy: 1400, jm: 1, jd: 1 };
+
+  return toJalali(new Date(Date.UTC(y, m - 1, d - 1, 20, 30)));
+}
+
 /** شروع روز به وقت محلی سرور — برای بازه‌های جست‌وجو. */
 export function startOfDay(date: Date = new Date()): Date {
   const copy = new Date(date);

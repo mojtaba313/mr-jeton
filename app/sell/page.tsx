@@ -8,7 +8,7 @@ import { LinkButton } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/motion-primitives";
 
 import { currentUser } from "@/lib/auth";
-import { FEE_PERCENT } from "@/lib/config";
+import { FEE_PERCENT, MAX_DELIVERY_LEAD_HOURS } from "@/lib/config";
 import { formatJalaliShort, toDateInput } from "@/lib/dates";
 import { formatNumber } from "@/lib/money";
 import { getUpcomingDays } from "@/lib/queries";
@@ -118,6 +118,14 @@ async function SellBlock() {
 async function SellFormBlock() {
   const days = await getUpcomingDays(6);
 
+  // «الان» به وقت تهران: روزهای گذشته غیرفعال می‌شوند و تحویل از همان سقفی
+  // دورتر نمی‌رود که اعتبارسنجی سرور اعمال می‌کند.
+  const now = new Date();
+  const minDateISO = toDateInput(now);
+  const maxDateISO = toDateInput(
+    new Date(now.getTime() + MAX_DELIVERY_LEAD_HOURS * 3600e3),
+  );
+
   return (
     <SellForm
       days={days.map((day) => ({
@@ -127,6 +135,9 @@ async function SellFormBlock() {
         dateISO: toDateInput(day.date),
       }))}
       officialPrice={days[0]?.officialPrice ?? 0}
+      defaultDateISO={days[0] ? toDateInput(days[0].date) : minDateISO}
+      minDateISO={minDateISO}
+      maxDateISO={maxDateISO}
     />
   );
 }
